@@ -1,0 +1,55 @@
+{
+    "name": "glitchr/omnitrade",
+    "type": "library",
+    "description": "Omnitrade: one contract for payment providers and commerce platforms - purchase, authorize, capture, refund, webhooks, platform orders - and its Symfony bundle (Omnibus's sibling for trade).",
+    "keywords": [
+        "payment",
+        "gateway",
+        "stripe",
+        "paypal",
+        "shopify",
+        "woocommerce",
+        "omnitrade"
+    ],
+    "license": "LGPL-3.0-or-later",
+    "authors": [
+        {
+            "name": "Marco Meyer",
+            "email": "marco.meyer@glitchr.io"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "symfony/http-client-contracts": "^3.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "symfony/config": "^6.4|^7.0|^8.0",
+        "symfony/dependency-injection": "^6.4|^7.0|^8.0",
+        "symfony/http-client": "^6.4|^7.0|^8.0",
+        "symfony/http-kernel": "^6.4|^7.0|^8.0"
+    },
+    "suggest": {
+        "symfony/http-client": "The HTTP client the providers talk through",
+        "omnitrade/stripe": "Stripe: cards and wallets through Checkout, refunds, webhooks",
+        "omnitrade/paypal": "PayPal: orders, captures, refunds, webhooks",
+        "omnitrade/shopify": "Shopify: draft orders paid on its invoice page, orders, webhooks",
+        "omnitrade/woocommerce": "WooCommerce: orders and their payment state over the REST API"
+    },
+    "autoload": {
+        "psr-4": {
+            "Omnitrade\\": ""
+        },
+        "exclude-from-classmap": [
+            "/Tests/"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Omnitrade\\Tests\\": "Tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
