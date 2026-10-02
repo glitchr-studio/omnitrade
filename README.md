@@ -46,4 +46,21 @@ public function __construct(GatewayInterface $card) {}
 
 An application's own `GatewayFactoryInterface` is registered too (autoconfigured).
 
+## Docker: every provider with your test keys
+
+`docker/` runs this package with every `omnitrade/*` provider installed - from GitHub, or from the
+checkouts beside this one when `OMNITRADE_PLUGINS=../..` is set - and a console that exercises
+them with the keys in `docker/.env` (copy `.env.dist`; `docker compose run --rm omnitrade gateways`
+says which providers are configured and what each one does):
+
+```sh
+cd docker && cp .env.dist .env
+docker compose run --rm omnitrade gateways
+docker compose run --rm omnitrade purchase stripe --amount 1990      # prints the Checkout page to open
+docker compose run --rm omnitrade fetch stripe cs_test_...
+docker compose run --rm omnitrade refund stripe cs_test_... --amount 500
+docker compose run --rm omnitrade notify stripe -H 'Stripe-Signature: t=...,v1=...' < event.json
+docker compose run --rm omnitrade test                               # every package's tests
+```
+
 License: LGPL-3.0-or-later.

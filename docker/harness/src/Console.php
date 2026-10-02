@@ -1,0 +1,155 @@
+<?php
+
+namespace Omnitrade\Harness;
+
+use Omnitrade\Exception\InvalidConfigException;
+use Omnitrade\Exception\OmnitradeException;
+use Omnitrade\GatewayFactoryInterface;
+use Omnitrade\GatewayInterface;
+use Omnitrade\Model\Customer;
+use Omnitrade\Model\Line;
+use Omnitrade\Model\Money;
+use Omnitrade\Model\Payment;
+use Omnitrade\Registry;
+use Omnitrade\Request;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\Table;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\HttpClient\HttpClient;
+
+/**
+ * The console that exercises every provider with the keys in .env:
+ * gateways, methods, purchase, authorize, capture, void, fetch, refund,
+ * notify, order. Results are printed whole, as JSON.
+ */
+final class Console
+{
+    /** @var array<string, array{factory: string, needs: list<string>, options: array<string, mixed>}> */
+    private array $config;
+
+    /** @var array<string, GatewayFactoryInterface> */
+    private array $factories = [];
+
+    private Registry $registry;
+
+    private function __construct()
+    {
+        $this->config = require __DIR__.'/../config/gateways.php';
+        $http = HttpClient::create();
+        foreach (require __DIR__.'/../plugins.php' as [, $class]) {
+            if (class_exists($class)) {
+                $factory = new $class($http);
+                $this->factories[$factory->getName()] = $factory;
+            }
+        }
+        $configured = array_filter($this->config, static fn (array $g) => !array_filter($g['needs'], static fn (string $key) => false === getenv($key) || '' === getenv($key)));
+        $this->registry = new Registry($this->factories, array_map(static fn (array $g) => ['factory' => $g['factory'], 'options' => array_filter($g['options'], static fn ($v) => null !== $v)], $configured));
+    }
+
+    public static function create(): Application
+    {
+        $self = new self();
+        $gateway = new InputArgument('gateway', InputArgument::REQUIRED);
+        $reference = new InputArgument('reference', InputArgument::REQUIRED, 'The provider\'s reference of the transaction');
+        $amount = static fn (string $description) => new InputOption('amount', 'a', InputOption::VALUE_REQUIRED, $description.' (minor units)');
+        $currency = new InputOption('currency', 'c', InputOption::VALUE_REQUIRED, '', 'EUR');
+        $app = new Application('omnitrade', '1.x');
+        $app->addCommand($self->command('gateways', 'Which providers are installed and which are configured from .env', [], fn ($in, $out) => $self->gateways($out)));
+        $app->addCommand($self->command('methods', 'The payment methods the provider offers', [$gateway, $amount('For this amount'), $currency, new InputOption('country', null, InputOption::VALUE_REQUIRED)], fn ($in, $out) => $self->print($out, $self->gateway($in)->paymentMethods($in->getOption('amount') ? Money::of((int) $in->getOption('amount'), $in->getOption('currency')) : null, $in->getOption('country')))));
+        $app->addCommand($self->command('purchase', 'A payment: its page to open, or its state', [$gateway, $amount('The amount'), $currency, new InputOption('reference', 'r', InputOption::VALUE_REQUIRED, '', 'OMNITRADE-'.date('ymd-His')), new InputOption('method', 'm', InputOption::VALUE_REQUIRED, 'A payment method to insist on'), new InputOption('line', 'l', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'A line: "label=unit amount[xquantity][@reference]"')], fn ($in, $out) => $self->print($out, $self->gateway($in)->purchase($self->payment($in)))));
+        $app->addCommand($self->command('authorize', 'An authorization to capture later', [$gateway, $amount('The amount'), $currency, new InputOption('reference', 'r', InputOption::VALUE_REQUIRED, '', 'OMNITRADE-'.date('ymd-His')), new InputOption('method', 'm', InputOption::VALUE_REQUIRED), new InputOption('line', 'l', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY)], fn ($in, $out) => $self->print($out, $self->gateway($in)->authorize($self->payment($in)))));
+        $app->addCommand($self->command('capture', 'An authorization captured', [$gateway, $reference, $amount('Part of it'), $currency], fn ($in, $out) => $self->print($out, $self->gateway($in)->capture($in->getArgument('reference'), $in->getOption('amount') ? Money::of((int) $in->getOption('amount'), $in->getOption('currency')) : null))));
+        $app->addCommand($self->command('void', 'An authorization voided', [$gateway, $reference], fn ($in, $out) => $self->print($out, $self->gateway($in)->void($in->getArgument('reference')))));
+        $app->addCommand($self->command('fetch', 'Where a transaction stands', [$gateway, $reference], fn ($in, $out) => $self->print($out, $self->gateway($in)->fetch($in->getArgument('reference')))));
+        $app->addCommand($self->command('refund', 'A refund, whole or partial', [$gateway, $reference, $amount('Part of it'), $currency, new InputOption('reason', null, InputOption::VALUE_REQUIRED)], fn ($in, $out) => $self->print($out, $self->gateway($in)->refund($in->getArgument('reference'), $in->getOption('amount') ? Money::of((int) $in->getOption('amount'), $in->getOption('currency')) : null, 'refund-'.date('ymd-His'), $in->getOption('reason')))));
+        $app->addCommand($self->command('notify', 'A webhook read from stdin, checked and decoded', [$gateway, new InputOption('header', 'H', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, '"Name: value", the signature header among them')], function ($in, $out) use ($self) {
+            $headers = [];
+            foreach ($in->getOption('header') as $header) {
+                [$name, $value] = array_map('trim', array_pad(explode(':', $header, 2), 2, ''));
+                $headers[$name] = $value;
+            }
+            $self->print($out, $self->gateway($in)->notify((string) stream_get_contents(\STDIN), $headers));
+        }));
+        $app->addCommand($self->command('order', 'A platform\'s order', [$gateway, $reference], fn ($in, $out) => $self->print($out, $self->gateway($in)->fetchOrder($in->getArgument('reference')))));
+
+        return $app;
+    }
+
+    /** @param list<InputArgument|InputOption> $definition */
+    private function command(string $name, string $description, array $definition, \Closure $code): Command
+    {
+        $command = new Command($name);
+        $command->setDescription($description)->setDefinition($definition);
+        $command->setCode(function (InputInterface $in, OutputInterface $out) use ($code): int {
+            try {
+                $code($in, $out);
+
+                return Command::SUCCESS;
+            } catch (InvalidConfigException $e) {
+                $out->writeln('<error>'.$e->getMessage().'</error>');
+
+                return Command::INVALID;
+            } catch (OmnitradeException $e) {
+                $out->writeln('<error>'.$e->getMessage().'</error>');
+
+                return Command::FAILURE;
+            }
+        });
+
+        return $command;
+    }
+
+    private function gateways(OutputInterface $out): void
+    {
+        $requests = ['purchase' => Request\Purchase::class, 'authorize' => Request\Authorize::class, 'capture' => Request\Capture::class, 'refund' => Request\Refund::class, 'fetch' => Request\FetchTransaction::class, 'methods' => Request\GetPaymentMethods::class, 'notify' => Request\Notify::class, 'order' => Request\FetchOrder::class];
+        $table = new Table($out);
+        $table->setHeaders(['Gateway', 'Factory', 'Installed', 'Configured', 'Does']);
+        foreach ($this->config as $name => $gateway) {
+            $installed = isset($this->factories[$gateway['factory']]);
+            $missing = array_filter($gateway['needs'], static fn (string $key) => false === getenv($key) || '' === getenv($key));
+            $does = '';
+            if ($installed && !$missing) {
+                $g = $this->registry->get($name);
+                $does = implode(' ', array_keys(array_filter($requests, static fn (string $class) => $g->supports($class))));
+            }
+            $table->addRow([$name, $gateway['factory'], $installed ? '<info>yes</info>' : '<comment>no</comment>', $missing ? '<comment>needs '.implode(', ', $missing).'</comment>' : ($installed ? '<info>yes</info>' : ''), $does]);
+        }
+        $table->render();
+    }
+
+    private function gateway(InputInterface $in): GatewayInterface
+    {
+        return $this->registry->get($in->getArgument('gateway'));
+    }
+
+    private function payment(InputInterface $in): Payment
+    {
+        $currency = strtoupper((string) $in->getOption('currency'));
+        $lines = [];
+        foreach ((array) $in->getOption('line') as $spec) {
+            if (preg_match('/^(?<label>[^=]+)=(?<unit>\d+)(?:x(?<qty>\d+))?(?:@(?<ref>.+))?$/', $spec, $m)) {
+                $lines[] = new Line($m['label'], Money::of((int) $m['unit'], $currency), (int) ($m['qty'] ?: 1), reference: $m['ref'] ?: null);
+            }
+        }
+        $amount = (int) ($in->getOption('amount') ?? array_sum(array_map(static fn (Line $l) => $l->unitAmount->amount * $l->quantity, $lines)) ?: 1990);
+        $env = static fn (string $key, ?string $default = null): ?string => (false !== ($v = getenv($key)) && '' !== $v) ? $v : $default;
+
+        return new Payment(Money::of($amount, $currency), $in->getOption('reference'), 'Omnitrade harness '.$in->getOption('reference'),
+            new Customer($env('HARNESS_CUSTOMER_EMAIL', 'buyer@example.org'), $env('HARNESS_CUSTOMER_NAME', 'Émile Zola')),
+            $lines ?: [new Line('Harness purchase', Money::of($amount, $currency), 1)],
+            returnUrl: $env('HARNESS_RETURN_URL', 'https://example.org/paid'), cancelUrl: $env('HARNESS_CANCEL_URL', 'https://example.org/cancelled'),
+            idempotencyKey: $in->getOption('reference'), method: $in->hasOption('method') ? $in->getOption('method') : null);
+    }
+
+    private function print(OutputInterface $out, mixed $result): void
+    {
+        if (\is_object($result) && property_exists($result, 'redirectUrl') && $result->redirectUrl) {
+            $out->writeln('<info>Open:</info> '.$result->redirectUrl);
+        }
+        $out->writeln((string) json_encode($result, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_PARTIAL_OUTPUT_ON_ERROR));
+    }
+}

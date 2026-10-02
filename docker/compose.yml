@@ -1,0 +1,29 @@
+# glitchr/omnitrade with every provider package, your test keys in .env:
+#
+#   cp .env.dist .env                                        # fill in the keys at hand
+#   docker compose run --rm omnitrade gateways               # which providers are installed and configured
+#   docker compose run --rm omnitrade purchase stripe --amount 1990   # a payment: its page to open, or its state
+#   docker compose run --rm omnitrade fetch stripe cs_test_...
+#   docker compose run --rm omnitrade refund stripe cs_test_... --amount 500
+#   docker compose run --rm omnitrade notify stripe --header 'Stripe-Signature: ...' < webhook.json
+#   docker compose run --rm omnitrade test                   # every package's tests
+#
+# Providers come from GitHub (branch 1.x) unless their checkout sits under
+# OMNITRADE_PLUGINS (set it to ../.. in .env when this core sits in the
+# workspace beside them): then that checkout is what runs.
+name: omnitrade-harness
+
+services:
+  omnitrade:
+    build: .
+    image: glitchr/omnitrade-harness
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ..:/omnitrade/core
+      - ${OMNITRADE_PLUGINS:-./plugins}:/omnitrade/plugins:ro
+      - harness:/harness
+
+volumes:
+  harness:
