@@ -54,6 +54,12 @@ final class GatewayTest extends TestCase
         self::assertSame('tx_a_1', $registry->get('card')->purchase(Fixtures::payment())->reference);
         self::assertSame(['stub'], $registry->factories());
 
+        // Typed elsewhere (a back office), over the configured options: a fresh gateway, not kept.
+        self::assertSame(['token' => 'a'], $registry->options('card'));
+        $typed = $registry->create('card', ['token' => 'b']);
+        self::assertNotSame($registry->get('card'), $typed);
+        self::assertSame('tx_b_1', $typed->purchase(Fixtures::payment())->reference);
+
         $this->expectException(InvalidConfigException::class);
         $this->expectExceptionMessage('No "paypal" gateway; configured: card.');
         $registry->get('paypal');
