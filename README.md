@@ -24,10 +24,10 @@ the requests and the Symfony bundle. Each provider is a package of its own:
 
 | Package | Provider |
 |---|---|
-| `omnitrade/stripe` | Stripe: Checkout sessions, refunds, webhooks (on omnipay/stripe) |
+| `omnitrade/stripe` | Stripe: Checkout sessions, refunds, webhooks (on omnipay/stripe); its Products and Prices |
 | `omnitrade/paypal` | PayPal: orders, capture, refunds, webhooks (on omnipay/paypal) |
-| `omnitrade/shopify` | Shopify: draft orders paid on the invoice page, orders, webhooks (Admin GraphQL) |
-| `omnitrade/woocommerce` | WooCommerce: orders and their payment state (REST API v3) |
+| `omnitrade/shopify` | Shopify: draft orders paid on the invoice page, orders, the catalogue and inventory, webhooks (Admin GraphQL) |
+| `omnitrade/woocommerce` | WooCommerce: orders and their payment state, the catalogue and stock (REST API v3) |
 
 A provider's factory fills a `Config` - its name, options, API client and actions - and the
 gateway runs the actions that support each request, exactly as an Omnibus carrier does. A
@@ -68,6 +68,10 @@ docker compose run --rm omnitrade purchase stripe --amount 1990      # prints th
 docker compose run --rm omnitrade fetch stripe cs_test_...
 docker compose run --rm omnitrade refund stripe cs_test_... --amount 500
 docker compose run --rm omnitrade notify stripe -H 'Stripe-Signature: t=...,v1=...' < event.json
+docker compose run --rm omnitrade catalogue shopify --since='-1 day' --limit=20   # products, variants, prices, stock
+docker compose run --rm omnitrade catalogue woocommerce --query=margaux --cursor=2
+docker compose run --rm omnitrade catalogue shopify --product=https://shop.example/products/margaux --inventory
+docker compose run --rm omnitrade catalogue woocommerce --inventory                # every variant's stock
 docker compose run --rm omnitrade test                               # every package's tests
 ```
 

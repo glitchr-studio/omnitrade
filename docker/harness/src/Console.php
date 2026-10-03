@@ -10,6 +10,8 @@ use Omnitrade\Model\Customer;
 use Omnitrade\Model\Line;
 use Omnitrade\Model\Money;
 use Omnitrade\Model\Payment;
+use Omnitrade\Model\Product;
+use Omnitrade\Model\Stock;
 use Omnitrade\Registry;
 use Omnitrade\Request;
 use Symfony\Component\Console\Application;
@@ -24,7 +26,8 @@ use Symfony\Component\HttpClient\HttpClient;
 /**
  * The console that exercises every provider with the keys in .env:
  * gateways, methods, purchase, authorize, capture, void, fetch, refund,
- * notify, order. Results are printed whole, as JSON.
+ * notify, order, catalogue. Results are printed whole, as JSON; the
+ * catalogue as tables.
  */
 final class Console
 {
@@ -75,6 +78,14 @@ final class Console
             $self->print($out, $self->gateway($in)->notify((string) stream_get_contents(\STDIN), $headers));
         }));
         $app->addCommand($self->command('order', 'A platform\'s order', [$gateway, $reference], fn ($in, $out) => $self->print($out, $self->gateway($in)->fetchOrder($in->getArgument('reference')))));
+        $app->addCommand($self->command('catalogue', 'The catalogue: products, their variants, prices and stock', [$gateway,
+            new InputOption('query', null, InputOption::VALUE_REQUIRED, 'The platform\'s own search'),
+            new InputOption('since', null, InputOption::VALUE_REQUIRED, 'Only what changed since: a date, or "-1 day"'),
+            new InputOption('limit', null, InputOption::VALUE_REQUIRED, 'Products per page', '10'),
+            new InputOption('cursor', null, InputOption::VALUE_REQUIRED, 'The page this cursor (printed under the previous one) points to'),
+            new InputOption('product', null, InputOption::VALUE_REQUIRED, 'One product, by its id there or the address of its page'),
+            new InputOption('inventory', null, InputOption::VALUE_NONE, 'The stock levels: of --product\'s variants, or of every variant'),
+        ], fn ($in, $out) => $self->catalogue($in, $out)));
 
         return $app;
     }
@@ -105,7 +116,7 @@ final class Console
 
     private function gateways(OutputInterface $out): void
     {
-        $requests = ['purchase' => Request\Purchase::class, 'authorize' => Request\Authorize::class, 'capture' => Request\Capture::class, 'refund' => Request\Refund::class, 'fetch' => Request\FetchTransaction::class, 'methods' => Request\GetPaymentMethods::class, 'notify' => Request\Notify::class, 'order' => Request\FetchOrder::class];
+        $requests = ['purchase' => Request\Purchase::class, 'authorize' => Request\Authorize::class, 'capture' => Request\Capture::class, 'refund' => Request\Refund::class, 'fetch' => Request\FetchTransaction::class, 'methods' => Request\GetPaymentMethods::class, 'notify' => Request\Notify::class, 'order' => Request\FetchOrder::class, 'products' => Request\FetchProducts::class, 'product' => Request\FetchProduct::class, 'inventory' => Request\FetchInventory::class];
         $table = new Table($out);
         $table->setHeaders(['Gateway', 'Factory', 'Installed', 'Configured', 'Does']);
         foreach ($this->config as $name => $gateway) {
@@ -119,6 +130,88 @@ final class Console
             $table->addRow([$name, $gateway['factory'], $installed ? '<info>yes</info>' : '<comment>no</comment>', $missing ? '<comment>needs '.implode(', ', $missing).'</comment>' : ($installed ? '<info>yes</info>' : ''), $does]);
         }
         $table->render();
+    }
+
+    private function catalogue(InputInterface $in, OutputInterface $out): void
+    {
+        $gateway = $this->gateway($in);
+        if (null !== $reference = $in->getOption('product')) {
+            $product = $gateway->fetchProduct($reference);
+            if (null === $product) {
+                $out->writeln('<comment>No such product.</comment>');
+
+                return;
+            }
+            $this->products($out, [$product]);
+            $out->writeln(array_filter([
+                '<info>Reference:</info> '.$product->reference.($product->handle ? ' ('.$product->handle.')' : ''),
+                $product->url ? '<info>Page:</info> '.$product->url : null,
+                $product->categories ? '<info>Categories:</info> '.implode(', ', $product->categories) : null,
+                $product->tags ? '<info>Tags:</info> '.implode(', ', $product->tags) : null,
+                $product->options ? '<info>Options:</info> '.implode('; ', array_map(static fn ($o) => $o->name.': '.implode(', ', $o->values), $product->options)) : null,
+                $product->attributes ? '<info>Attributes:</info> '.implode('; ', array_map(static fn ($k, $v) => $k.': '.(\is_array($v) ? implode(', ', $v) : $v), array_keys($product->attributes), $product->attributes)) : null,
+                $product->media ? '<info>Media:</info> '.implode(' ', array_map(static fn ($m) => $m->url, $product->media)) : null,
+            ]));
+            if ($in->getOption('inventory')) {
+                $this->stocks($out, $gateway->fetchInventory(array_map(static fn ($v) => $v->reference, $product->variants)));
+            }
+
+            return;
+        }
+        if ($in->getOption('inventory')) {
+            $this->stocks($out, $gateway->fetchInventory());
+
+            return;
+        }
+        $since = $in->getOption('since');
+        $page = $gateway->fetchProducts($in->getOption('cursor'), null !== $since ? new \DateTimeImmutable($since) : null, $in->getOption('query'), max(1, (int) $in->getOption('limit')));
+        $this->products($out, $page->products);
+        $out->writeln($page->hasMore() ? '<info>Next page:</info> --cursor='.escapeshellarg((string) $page->next) : 'The last page.');
+    }
+
+    /** @param list<Product> $products */
+    private function products(OutputInterface $out, array $products): void
+    {
+        $table = new Table($out);
+        $table->setHeaders(['Product', 'Brand', 'Status', 'Variant', 'SKU', 'Price', 'Compare at', 'Stock']);
+        foreach ($products as $product) {
+            foreach ($product->variants as $i => $variant) {
+                $offer = $variant->offer();
+                $table->addRow([
+                    0 === $i ? $product->title."\n".$product->reference : '',
+                    0 === $i ? (string) $product->brand : '',
+                    0 === $i ? $product->status : '',
+                    ($variant->title ?? '-')."\n".$variant->reference,
+                    (string) $variant->sku,
+                    $offer ? (string) $offer->price.($offer->available ? '' : ' (unavailable)') : '-',
+                    $offer?->compareAt ? (string) $offer->compareAt : '',
+                    self::quantity($variant->stock),
+                ]);
+            }
+        }
+        $table->render();
+        $out->writeln(\count($products).' product(s).');
+    }
+
+    /** @param list<Stock> $stocks */
+    private function stocks(OutputInterface $out, array $stocks): void
+    {
+        $table = new Table($out);
+        $table->setHeaders(['Variant', 'SKU', 'Stock', 'Location', 'Item']);
+        foreach ($stocks as $stock) {
+            $table->addRow([$stock->reference, (string) $stock->sku, self::quantity($stock), (string) $stock->location, (string) $stock->item]);
+        }
+        $table->render();
+        $out->writeln(\count($stocks).' stock level(s).');
+    }
+
+    private static function quantity(?Stock $stock): string
+    {
+        return match (true) {
+            null === $stock => '-',
+            !$stock->tracked || null === $stock->quantity => 'not counted',
+            default => (string) $stock->quantity,
+        };
     }
 
     private function gateway(InputInterface $in): GatewayInterface
