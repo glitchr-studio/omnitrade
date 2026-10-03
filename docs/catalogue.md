@@ -61,9 +61,16 @@ site's.
 
 | Provider | FetchProducts | FetchProduct (id / URL) | FetchInventory |
 |---|---|---|---|
-| `omnitrade/shopify` | Admin GraphQL `products`, `updated_at` and search filters | gid, numeric id / handle from `/products/<handle>` | `productVariants` inventory quantities |
-| `omnitrade/woocommerce` | REST v3 `/products` (`modified_after`, `search`), variations | id / slug | `stock_quantity` of products and variations |
-| `omnitrade/stripe` | Products with their active Prices | `prod_…` / none | not supported |
+| `omnitrade/shopify` | Admin GraphQL `products` (`endCursor`), `updated_at:>` and search filters | gid, numeric id, handle / handle from `/products/<handle>`, id from `/admin/products/<id>` | `nodes(ids:)` on the variants, or every `productVariants` |
+| `omnitrade/woocommerce` | REST v3 `/products` (page number, `modified_after`, `search`), variations | id (a variation's gives its product), slug / slug, `?p=<id>` | `stock_quantity` of products and variations |
+| `omnitrade/stripe` | Products (`starting_after`; `search` on `name~` for a query; `updatedSince` filtered among each page) with their active Prices | `prod_…` / none | not supported |
+
+A cursor is a position, not a search: hand the same `updatedSince` and `query`
+with it to the next `FetchProducts`. A provider that filters a page after
+reading it (Stripe's `updatedSince`) may give a short or empty page that
+still has a next one: page on while `hasMore()`.
+
+Each provider's `docs/catalogue.md` says what it maps how.
 
 ## Webhooks
 
