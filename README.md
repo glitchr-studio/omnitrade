@@ -8,10 +8,18 @@ $transaction = $gateway->purchase($payment);   // PAID, or PENDING with the page
 $gateway->fetch($transaction->reference);      // where it stands now
 $gateway->refund($transaction->reference, Money::of(500, 'EUR'), idempotencyKey: 'refund-42');
 $gateway->notify($request->getContent(), $request->headers->all());   // a webhook, checked and read
+
+$page = $gateway->fetchProducts(updatedSince: $lastSync);   // the platform's catalogue, page by page
+$gateway->fetchProduct('https://cave.example/products/margaux-2019');   // by id or by its page
+$gateway->fetchInventory();                                  // stock levels, where the platform counts them
 ```
 
+The catalogue (`Product`, `ProductVariant`, `Offer`, `Stock`, `Media`, `Option`, `Merchant`)
+is described in [docs/catalogue.md](docs/catalogue.md).
+
 This package holds the contract (`GatewayInterface`, `GatewayFactory`, `Registry`), the models
-(`Payment`, `Money`, `Transaction`, `Refund`, `PaymentMethod`, `Notification`, `PlatformOrder`...),
+(`Payment`, `Money`, `Transaction`, `Refund`, `PaymentMethod`, `Notification`, `PlatformOrder`,
+`Product`, `ProductVariant`, `Offer`, `Stock`...),
 the requests and the Symfony bundle. Each provider is a package of its own:
 
 | Package | Provider |

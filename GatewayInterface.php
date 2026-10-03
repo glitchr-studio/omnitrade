@@ -7,13 +7,18 @@ use Omnitrade\Model\Notification;
 use Omnitrade\Model\Payment;
 use Omnitrade\Model\PaymentMethod;
 use Omnitrade\Model\PlatformOrder;
+use Omnitrade\Model\Product;
+use Omnitrade\Model\ProductPage;
+use Omnitrade\Model\Reference;
 use Omnitrade\Model\Refund;
+use Omnitrade\Model\Stock;
 use Omnitrade\Model\Transaction;
 use Omnitrade\Request\Request;
 
 /**
  * One provider, configured - a payment service (Stripe, PayPal) or a commerce
- * platform (Shopify, WooCommerce): the same questions for all of them. Each
+ * platform (Shopify, WooCommerce): the same questions for all of them, about
+ * payments and about the catalogue. Each
  * typed method is a shortcut for execute() with its request; a provider that
  * does not do something throws RequestNotSupportedException, and supports()
  * says so beforehand.
@@ -71,4 +76,17 @@ interface GatewayInterface
 
     /** A platform's own order (Shopify, WooCommerce): the sale as it stands there. */
     public function fetchOrder(string $reference): PlatformOrder;
+
+    /** One product, by the platform's id or the address of its page; null when there is none. */
+    public function fetchProduct(Reference|string $reference): ?Product;
+
+    /** A page of the catalogue, from a cursor, changed since a date, matching a search. */
+    public function fetchProducts(?string $cursor = null, ?\DateTimeInterface $updatedSince = null, ?string $query = null, int $limit = 50): ProductPage;
+
+    /**
+     * @param list<string> $references the variants, by their ids there (none: all)
+     *
+     * @return list<Stock>
+     */
+    public function fetchInventory(array $references = []): array;
 }

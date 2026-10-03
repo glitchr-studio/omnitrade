@@ -1,0 +1,79 @@
+---
+title: Catalogue
+order: 20
+---
+
+# The catalogue: products, variants, offers, stock
+
+The same gateways that take payments read a platform's catalogue: a shop kept
+in Shopify, WooCommerce or Stripe's own Products is read through one contract,
+and a site copies it into its own tables (omnibase/marketplace's
+`marketplace:catalogue:sync`) or shows it as it is.
+
+```php
+$gateway = $registry->get('shopify');
+
+$page = $gateway->fetchProducts();                                   // the first page
+while ($page->hasMore()) {
+    $page = $gateway->fetchProducts($page->next);                    // the next one, by its cursor
+}
+$gateway->fetchProducts(updatedSince: new \DateTimeImmutable('-1 day'));   // what changed
+$gateway->fetchProducts(query: 'margaux');                           // the platform's own search
+
+$product = $gateway->fetchProduct('gid://shopify/Product/42');       // by its id there
+$product = $gateway->fetchProduct('https://cave.example/products/margaux-2019');   // or by its page
+
+$stocks = $gateway->fetchInventory(['gid://shopify/ProductVariant/7']);
+```
+
+## Models
+
+All `final readonly`, under `Omnitrade\Model`:
+
+| Model | What it holds |
+|---|---|
+| `Product` | provider, reference (the platform's id), title, description (HTML), handle, brand (Shopify's vendor, WooCommerce's brand), url, status (`active`, `draft`, `archived`), tags, categories, attributes (key/value), options, variants, media, merchant, updatedAt, raw |
+| `ProductVariant` | reference, title (null for an only variant), sku, barcode, offers, options (its value of each option), stock, image, attributes, weight (grams), raw |
+| `Offer` | price (`Money`), compareAt, available, url, merchant (null: the shop itself), reference (a Stripe price), taxIncluded |
+| `Stock` | reference (the variant), quantity (null: not counted), tracked, sku, location, item (a Shopify inventory item) |
+| `Media` | url, alt, type (`image`, `video`), width, height, reference |
+| `Option` | name, values: what the variants differ by ("Millésime: 2018, 2019") |
+| `Merchant` | name, reference, url, country: who sells, when it is not the shop |
+| `Reference` | id or url: `Reference::of()` tells them apart; `slug()` is the page's last segment |
+| `ProductPage` | products, next (the cursor of the next page, null on the last) |
+
+`ProductVariant::price()` is its first offer's price (the shop's own);
+`Product::price()` the lowest of its variants'. What the platform answered is
+kept in `$raw`.
+
+## Requests
+
+| Request | Result | Shortcut |
+|---|---|---|
+| `FetchProducts(?cursor, ?updatedSince, ?query, limit = 50)` | `ProductPage` | `fetchProducts()` |
+| `FetchProduct(Reference\|string)` | `?Product` | `fetchProduct()` |
+| `FetchInventory(list<string> $references = [])` | `list<Stock>` | `fetchInventory()` |
+| `AffiliateLink(Reference\|string, ?tag)` | `?string` (a URL) | reserved: no provider answers it yet |
+
+A provider says what it reads with `supports()`: Stripe has no stock, so
+`supports(FetchInventory::class)` is false there and the stock stays the
+site's.
+
+| Provider | FetchProducts | FetchProduct (id / URL) | FetchInventory |
+|---|---|---|---|
+| `omnitrade/shopify` | Admin GraphQL `products`, `updated_at` and search filters | gid, numeric id / handle from `/products/<handle>` | `productVariants` inventory quantities |
+| `omnitrade/woocommerce` | REST v3 `/products` (`modified_after`, `search`), variations | id / slug | `stock_quantity` of products and variations |
+| `omnitrade/stripe` | Products with their active Prices | `prod_…` / none | not supported |
+
+## Webhooks
+
+A product or stock event goes through `notify()` like a payment's: the
+`Notification` then carries `$product` (null for a deletion; `$reference` is
+the product's id) or `$stocks`, and `isCatalogue()` is true.
+
+```php
+$notification = $gateway->notify($request->getContent(), $request->headers->all());
+if ($notification->isCatalogue()) {
+    // update the copy: $notification->product, $notification->stocks
+}
+```

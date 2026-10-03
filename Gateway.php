@@ -9,6 +9,9 @@ use Omnitrade\Model\Money;
 use Omnitrade\Model\Notification;
 use Omnitrade\Model\Payment;
 use Omnitrade\Model\PlatformOrder;
+use Omnitrade\Model\Product;
+use Omnitrade\Model\ProductPage;
+use Omnitrade\Model\Reference;
 use Omnitrade\Model\Refund as RefundModel;
 use Omnitrade\Model\Transaction;
 use Omnitrade\Request;
@@ -105,5 +108,20 @@ final class Gateway implements GatewayInterface
     public function fetchOrder(string $reference): PlatformOrder
     {
         return $this->execute(new Request\FetchOrder($reference))->getOrder();
+    }
+
+    public function fetchProduct(Reference|string $reference): ?Product
+    {
+        return $this->execute(new Request\FetchProduct($reference))->getProduct();
+    }
+
+    public function fetchProducts(?string $cursor = null, ?\DateTimeInterface $updatedSince = null, ?string $query = null, int $limit = 50): ProductPage
+    {
+        return $this->execute(new Request\FetchProducts($cursor, $updatedSince, $query, $limit))->getPage();
+    }
+
+    public function fetchInventory(array $references = []): array
+    {
+        return $this->execute(new Request\FetchInventory($references))->getStocks();
     }
 }
