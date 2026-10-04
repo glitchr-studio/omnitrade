@@ -5,9 +5,11 @@ namespace Omnitrade\Request;
 use Omnitrade\Model\Reference;
 
 /**
- * Reserved: the address that sends a buyer to a product with the site's
- * affiliate tag (a marketplace's partner programme). No provider answers it
- * yet; supports() says false everywhere. Result: the URL.
+ * The address that sends a buyer to a product with the site's affiliate tag
+ * (a shop's partner programme): omnitrade/amazon writes it with the
+ * Associates tag, omnitrade/web with the query parameters configured per
+ * host. Result: the URL, or null when the provider has no programme for
+ * that product (use the plain address).
  */
 final class AffiliateLink extends Request
 {

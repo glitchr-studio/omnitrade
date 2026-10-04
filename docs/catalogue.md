@@ -53,7 +53,7 @@ kept in `$raw`.
 | `FetchProducts(?cursor, ?updatedSince, ?query, limit = 50)` | `ProductPage` | `fetchProducts()` |
 | `FetchProduct(Reference\|string)` | `?Product` | `fetchProduct()` |
 | `FetchInventory(list<string> $references = [])` | `list<Stock>` | `fetchInventory()` |
-| `AffiliateLink(Reference\|string, ?tag)` | `?string` (a URL) | reserved: no provider answers it yet |
+| `AffiliateLink(Reference\|string, ?tag)` | `?string` (a URL; null: no programme for it) | `affiliateLink()` |
 
 A provider says what it reads with `supports()`: Stripe has no stock, so
 `supports(FetchInventory::class)` is false there and the stock stays the
@@ -63,6 +63,8 @@ site's.
 |---|---|---|---|
 | `omnitrade/shopify` | Admin GraphQL `products` (`endCursor`), `updated_at:>` and search filters | gid, numeric id, handle / handle from `/products/<handle>`, id from `/admin/products/<id>` | `nodes(ids:)` on the variants, or every `productVariants` |
 | `omnitrade/woocommerce` | REST v3 `/products` (page number, `modified_after`, `search`), variations | id (a variation's gives its product), slug / slug, `?p=<id>` | `stock_quantity` of products and variations |
+| `omnitrade/web` | not supported | none / any product page: JSON-LD `Product` or `ProductGroup`, microdata, OpenGraph | not supported |
+| `omnitrade/amazon` | Creators API `searchItems` (a query is required; no paging) | ASIN / an Amazon page naming one (`getItems`) | not supported |
 | `omnitrade/stripe` | Products (`starting_after`; `search` on `name~` for a query; `updatedSince` filtered among each page) with their active Prices | `prod_…` / none | not supported |
 
 A cursor is a position, not a search: hand the same `updatedSince` and `query`
@@ -84,3 +86,17 @@ if ($notification->isCatalogue()) {
     // update the copy: $notification->product, $notification->stocks
 }
 ```
+
+## Affiliate links
+
+`affiliateLink()` gives the address that sends a buyer to a product with the
+site's tag, or null when the provider has no partner programme for it:
+
+```php
+$registry->get('amazon')->affiliateLink('https://www.amazon.fr/dp/B0C1234567/ref=x');   // https://www.amazon.fr/dp/B0C1234567?tag=mysite-21
+$registry->get('web')->affiliateLink('https://www.fnac.com/a1');                        // the parameters configured for fnac.com, or null
+```
+
+`omnitrade/amazon` needs only the partner tag for it (no API call);
+`omnitrade/web` adds the query parameters its `affiliate` option maps to the
+page's host, and drops the tracking parameters the address came with.

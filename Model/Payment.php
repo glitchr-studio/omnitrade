@@ -11,6 +11,10 @@ namespace Omnitrade\Model;
  * reference. $idempotencyKey makes the same purchase asked twice happen once,
  * at providers that honour one (Stripe does): give it per attempt, and keep
  * it with the attempt.
+ *
+ * $destination and $applicationFee make it a payment for someone else: taken
+ * by the platform, sent to a connected account (Request\CreateAccount), the
+ * platform keeping its fee.
  */
 final readonly class Payment
 {
@@ -36,7 +40,21 @@ final readonly class Payment
         public array $metadata = [],
         /** BCP 47, for the provider's page. */
         public ?string $locale = null,
+        /**
+         * A connected account the money goes to (Stripe Connect's destination
+         * charge: "acct_..."): the platform takes the payment and passes it on,
+         * keeping $applicationFee. Null: the money is the platform's own.
+         */
+        public ?string $destination = null,
+        /** What the platform keeps of a payment sent to $destination; inside $amount. */
+        public ?Money $applicationFee = null,
     ) {
+        if (null !== $applicationFee && null === $destination) {
+            throw new \InvalidArgumentException('An application fee is kept on a payment sent to a destination account.');
+        }
+        if (null !== $applicationFee && ($applicationFee->currency !== $amount->currency || $applicationFee->amount > $amount->amount || $applicationFee->amount < 0)) {
+            throw new \InvalidArgumentException('The application fee is in the payment\'s currency and within its amount.');
+        }
     }
 
     /** Whether the lines, the shipping and the discount add up to the amount, in its currency: then a page may list them. */

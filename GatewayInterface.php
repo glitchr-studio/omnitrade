@@ -2,6 +2,7 @@
 
 namespace Omnitrade;
 
+use Omnitrade\Model\Account;
 use Omnitrade\Model\Money;
 use Omnitrade\Model\Notification;
 use Omnitrade\Model\Payment;
@@ -12,13 +13,14 @@ use Omnitrade\Model\ProductPage;
 use Omnitrade\Model\Reference;
 use Omnitrade\Model\Refund;
 use Omnitrade\Model\Stock;
+use Omnitrade\Model\Subscription;
 use Omnitrade\Model\Transaction;
 use Omnitrade\Request\Request;
 
 /**
  * One provider, configured - a payment service (Stripe, PayPal) or a commerce
  * platform (Shopify, WooCommerce): the same questions for all of them, about
- * payments and about the catalogue. Each
+ * payments, the catalogue, connected accounts and subscriptions. Each
  * typed method is a shortcut for execute() with its request; a provider that
  * does not do something throws RequestNotSupportedException, and supports()
  * says so beforehand.
@@ -89,4 +91,30 @@ interface GatewayInterface
      * @return list<Stock>
      */
     public function fetchInventory(array $references = []): array;
+
+    /** The address that sends a buyer to a product with the site's affiliate tag; null when there is no programme for it. */
+    public function affiliateLink(Reference|string $reference, ?string $tag = null): ?string;
+
+    /**
+     * Open a connected account (Express by default) the platform will send payments to.
+     *
+     * @param array<string, scalar> $metadata
+     */
+    public function createAccount(string $country, ?string $email = null, string $type = Account::EXPRESS, array $metadata = []): Account;
+
+    /** The provider's page where the account's holder completes it. */
+    public function accountLink(string $reference, string $returnUrl, string $refreshUrl): string;
+
+    public function fetchAccount(string $reference): Account;
+
+    /** Start a subscription on a page the buyer is sent to: the payment's amount now, then every interval. */
+    public function subscribe(Payment $payment, string $interval = 'month', int $intervalCount = 1, ?string $price = null): Transaction;
+
+    public function fetchSubscription(string $reference): Subscription;
+
+    /** Stop a subscription, at the end of the paid period unless told otherwise. */
+    public function cancelSubscription(string $reference, bool $atPeriodEnd = true): Subscription;
+
+    /** The provider's page where a subscriber manages their subscription. */
+    public function subscriptionPortal(string $customer, string $returnUrl, ?string $locale = null): string;
 }

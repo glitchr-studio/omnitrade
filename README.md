@@ -12,10 +12,18 @@ $gateway->notify($request->getContent(), $request->headers->all());   // a webho
 $page = $gateway->fetchProducts(updatedSince: $lastSync);   // the platform's catalogue, page by page
 $gateway->fetchProduct('https://cave.example/products/margaux-2019');   // by id or by its page
 $gateway->fetchInventory();                                  // stock levels, where the platform counts them
+
+$gateway->affiliateLink('https://www.amazon.fr/dp/B0C1234567');   // the product's address with the site's tag
+
+$account = $gateway->createAccount('FR', 'host@example.org');   // a connected account (Stripe Connect, Express)
+$gateway->accountLink($account->reference, $return, $refresh);  // where its holder completes it
+$gateway->subscribe($payment, 'month');                         // a subscription, on the provider's page
 ```
 
 The catalogue (`Product`, `ProductVariant`, `Offer`, `Stock`, `Media`, `Option`, `Merchant`)
-is described in [docs/catalogue.md](docs/catalogue.md).
+and the affiliate links are described in [docs/catalogue.md](docs/catalogue.md), connected
+accounts and payments for someone else (`Payment::$destination`, `::$applicationFee`) in
+[docs/connect.md](docs/connect.md), subscriptions in [docs/subscriptions.md](docs/subscriptions.md).
 
 This package holds the contract (`GatewayInterface`, `GatewayFactory`, `Registry`), the models
 (`Payment`, `Money`, `Transaction`, `Refund`, `PaymentMethod`, `Notification`, `PlatformOrder`,
@@ -24,10 +32,12 @@ the requests and the Symfony bundle. Each provider is a package of its own:
 
 | Package | Provider |
 |---|---|
-| `omnitrade/stripe` | Stripe: Checkout sessions, refunds, webhooks (on omnipay/stripe); its Products and Prices |
+| `omnitrade/stripe` | Stripe: Checkout sessions, refunds, webhooks (on omnipay/stripe); its Products and Prices; Connect (Express accounts, destination charges); subscriptions |
 | `omnitrade/paypal` | PayPal: orders, capture, refunds, webhooks (on omnipay/paypal) |
 | `omnitrade/shopify` | Shopify: draft orders paid on the invoice page, orders, the catalogue and inventory, webhooks (Admin GraphQL) |
 | `omnitrade/woocommerce` | WooCommerce: orders and their payment state, the catalogue and stock (REST API v3) |
+| `omnitrade/web` | Any product page, read from its own markup (JSON-LD, microdata, OpenGraph); affiliate links by host |
+| `omnitrade/amazon` | Amazon: products through the Creators API, affiliate links with the partner tag |
 
 A provider's factory fills a `Config` - its name, options, API client and actions - and the
 gateway runs the actions that support each request, exactly as an Omnibus carrier does. A

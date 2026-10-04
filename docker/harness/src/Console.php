@@ -87,6 +87,24 @@ final class Console
             new InputOption('inventory', null, InputOption::VALUE_NONE, 'The stock levels: of --product\'s variants, or of every variant'),
         ], fn ($in, $out) => $self->catalogue($in, $out)));
 
+        $app->addCommand($self->command('link', 'The affiliate link of a product, by its id or the address of its page', [$gateway, $reference, new InputOption('tag', null, InputOption::VALUE_REQUIRED, 'A tag other than the configured one')], fn ($in, $out) => $out->writeln($self->gateway($in)->affiliateLink($in->getArgument('reference'), $in->getOption('tag')) ?? '<comment>No affiliate programme for this address.</comment>')));
+        $app->addCommand($self->command('account', 'A connected account: opened (--create FR), read, or its onboarding page (--link)', [$gateway, new InputArgument('reference', InputArgument::OPTIONAL, 'The account, by its id there'),
+            new InputOption('create', null, InputOption::VALUE_REQUIRED, 'Open an Express account in this country'),
+            new InputOption('email', null, InputOption::VALUE_REQUIRED),
+            new InputOption('link', null, InputOption::VALUE_NONE, 'The page where its holder completes it'),
+        ], function ($in, $out) use ($self) {
+            $g = $self->gateway($in);
+            if ($in->getOption('create')) {
+                $self->print($out, $g->createAccount($in->getOption('create'), $in->getOption('email')));
+            } elseif ($in->getOption('link')) {
+                $out->writeln($g->accountLink((string) $in->getArgument('reference'), (string) getenv('HARNESS_RETURN_URL'), (string) getenv('HARNESS_CANCEL_URL')));
+            } else {
+                $self->print($out, $g->fetchAccount((string) $in->getArgument('reference')));
+            }
+        }));
+        $app->addCommand($self->command('subscribe', 'A subscription: its page to open (the amount every --interval)', [$gateway, $amount('The amount per period'), $currency, new InputOption('reference', 'r', InputOption::VALUE_REQUIRED, '', 'OMNITRADE-'.date('ymd-His')), new InputOption('method', 'm', InputOption::VALUE_REQUIRED), new InputOption('line', 'l', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY), new InputOption('interval', null, InputOption::VALUE_REQUIRED, 'day, week, month or year', 'month'), new InputOption('price', null, InputOption::VALUE_REQUIRED, 'A price kept at the provider')], fn ($in, $out) => $self->print($out, $self->gateway($in)->subscribe($self->payment($in), $in->getOption('interval'), 1, $in->getOption('price')))));
+        $app->addCommand($self->command('subscription', 'A subscription: read, or stopped (--cancel, --now)', [$gateway, $reference, new InputOption('cancel', null, InputOption::VALUE_NONE), new InputOption('now', null, InputOption::VALUE_NONE, 'At once rather than at the end of the paid period')], fn ($in, $out) => $self->print($out, $in->getOption('cancel') ? $self->gateway($in)->cancelSubscription($in->getArgument('reference'), !$in->getOption('now')) : $self->gateway($in)->fetchSubscription($in->getArgument('reference')))));
+
         return $app;
     }
 

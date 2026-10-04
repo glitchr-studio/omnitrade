@@ -9,7 +9,8 @@ namespace Omnitrade\Model;
  * $transaction the transaction as the event carries it, when it does.
  *
  * A catalogue event (a product created, changed or deleted, a stock level
- * moved) is one too: $reference is then the product's id there, $product the
+ * moved) is one too, as are a connected account's ($account) and a
+ * subscription's ($subscription: started, renewed, past due, ended): $reference is then the product's id there, $product the
  * product as the event carries it (null for a deletion), $stocks the levels.
  */
 final readonly class Notification
@@ -28,7 +29,21 @@ final readonly class Notification
         public ?Product $product = null,
         /** @var list<Stock> */
         public array $stocks = [],
+        /** A connected account's event ("account.updated"): the account as it stands. */
+        public ?Account $account = null,
+        /** A subscription's event (created, renewed, changed, ended): the subscription as it stands. */
+        public ?Subscription $subscription = null,
     ) {
+    }
+
+    public function isAccount(): bool
+    {
+        return null !== $this->account;
+    }
+
+    public function isSubscription(): bool
+    {
+        return null !== $this->subscription;
     }
 
     /** About the catalogue rather than a payment. */

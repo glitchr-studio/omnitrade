@@ -2,12 +2,14 @@
 
 namespace Omnitrade\Bridge\Symfony;
 
+use Omnitrade\Amazon\AmazonGatewayFactory;
 use Omnitrade\GatewayFactoryInterface;
 use Omnitrade\GatewayInterface;
 use Omnitrade\PayPal\PayPalGatewayFactory;
 use Omnitrade\Registry;
 use Omnitrade\Shopify\ShopifyGatewayFactory;
 use Omnitrade\Stripe\StripeGatewayFactory;
+use Omnitrade\Web\WebGatewayFactory;
 use Omnitrade\WooCommerce\WooCommerceGatewayFactory;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -19,7 +21,8 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_it
 
 /**
  * Omnitrade in a Symfony application: the provider packages installed
- * (omnitrade/stripe, omnitrade/paypal, omnitrade/shopify, omnitrade/woocommerce)
+ * (omnitrade/stripe, omnitrade/paypal, omnitrade/shopify, omnitrade/woocommerce,
+ * omnitrade/web, omnitrade/amazon)
  * registered, the shop's gateways built from configuration, Omnitrade\Registry
  * autowired, and each gateway injectable by its name:
  *
@@ -38,14 +41,14 @@ final class OmnitradeBundle extends AbstractBundle
     protected string $extensionAlias = 'omnitrade';
 
     /** The provider packages this bundle knows, registered when installed. */
-    private const FACTORIES = [StripeGatewayFactory::class, PayPalGatewayFactory::class, ShopifyGatewayFactory::class, WooCommerceGatewayFactory::class];
+    private const FACTORIES = [StripeGatewayFactory::class, PayPalGatewayFactory::class, ShopifyGatewayFactory::class, WooCommerceGatewayFactory::class, WebGatewayFactory::class, AmazonGatewayFactory::class];
 
     public function configure(DefinitionConfigurator $definition): void
     {
         $definition->rootNode()
             ->children()
                 ->arrayNode('gateways')
-                    ->info('The shop\'s providers, by name: a factory (stripe, paypal, shopify, woocommerce...) and its options.')
+                    ->info('The shop\'s providers, by name: a factory (stripe, paypal, shopify, woocommerce, web, amazon...) and its options.')
                     ->useAttributeAsKey('name')
                     ->arrayPrototype()
                         ->children()

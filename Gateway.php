@@ -5,6 +5,7 @@ namespace Omnitrade;
 use Omnitrade\Action\ActionInterface;
 use Omnitrade\Exception\ProviderException;
 use Omnitrade\Exception\RequestNotSupportedException;
+use Omnitrade\Model\Account;
 use Omnitrade\Model\Money;
 use Omnitrade\Model\Notification;
 use Omnitrade\Model\Payment;
@@ -13,6 +14,7 @@ use Omnitrade\Model\Product;
 use Omnitrade\Model\ProductPage;
 use Omnitrade\Model\Reference;
 use Omnitrade\Model\Refund as RefundModel;
+use Omnitrade\Model\Subscription;
 use Omnitrade\Model\Transaction;
 use Omnitrade\Request;
 
@@ -123,5 +125,45 @@ final class Gateway implements GatewayInterface
     public function fetchInventory(array $references = []): array
     {
         return $this->execute(new Request\FetchInventory($references))->getStocks();
+    }
+
+    public function affiliateLink(Reference|string $reference, ?string $tag = null): ?string
+    {
+        return $this->execute(new Request\AffiliateLink($reference, $tag))->getUrl();
+    }
+
+    public function createAccount(string $country, ?string $email = null, string $type = Account::EXPRESS, array $metadata = []): Account
+    {
+        return $this->execute(new Request\CreateAccount($country, $email, $type, null, $metadata))->getAccount();
+    }
+
+    public function accountLink(string $reference, string $returnUrl, string $refreshUrl): string
+    {
+        return $this->execute(new Request\AccountLink($reference, $returnUrl, $refreshUrl))->getUrl();
+    }
+
+    public function fetchAccount(string $reference): Account
+    {
+        return $this->execute(new Request\FetchAccount($reference))->getAccount();
+    }
+
+    public function subscribe(Payment $payment, string $interval = 'month', int $intervalCount = 1, ?string $price = null): Transaction
+    {
+        return $this->execute(new Request\Subscribe($payment, $interval, $intervalCount, $price))->getTransaction();
+    }
+
+    public function fetchSubscription(string $reference): Subscription
+    {
+        return $this->execute(new Request\FetchSubscription($reference))->getSubscription();
+    }
+
+    public function cancelSubscription(string $reference, bool $atPeriodEnd = true): Subscription
+    {
+        return $this->execute(new Request\CancelSubscription($reference, $atPeriodEnd))->getSubscription();
+    }
+
+    public function subscriptionPortal(string $customer, string $returnUrl, ?string $locale = null): string
+    {
+        return $this->execute(new Request\SubscriptionPortal($customer, $returnUrl, $locale))->getUrl();
     }
 }
