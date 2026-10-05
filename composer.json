@@ -30,18 +30,23 @@
         "symfony/http-kernel": "^6.4|^7.0|^8.0"
     },
     "suggest": {
-        "symfony/http-client": "The HTTP client the providers talk through",
         "omnitrade/stripe": "Stripe: cards and wallets through Checkout, refunds, webhooks",
         "omnitrade/paypal": "PayPal: orders, captures, refunds, webhooks",
         "omnitrade/shopify": "Shopify: draft orders paid on its invoice page, orders, webhooks",
-        "omnitrade/woocommerce": "WooCommerce: orders and their payment state over the REST API"
+        "omnitrade/woocommerce": "WooCommerce: orders and their payment state over the REST API",
+        "omnitrade/web": "Any product page, read from its own markup; affiliate links by host",
+        "omnitrade/amazon": "Amazon: products through the Creators API, affiliate links with the partner tag",
+        "symfony/config": "In a Symfony application: the configuration of Omnitrade\\Bridge\\Symfony\\OmnitradeBundle",
+        "symfony/dependency-injection": "In a Symfony application: the services of Omnitrade\\Bridge\\Symfony\\OmnitradeBundle",
+        "symfony/http-kernel": "In a Symfony application: Omnitrade\\Bridge\\Symfony\\OmnitradeBundle itself"
     },
     "autoload": {
         "psr-4": {
             "Omnitrade\\": ""
         },
         "exclude-from-classmap": [
-            "/Tests/"
+            "/Tests/",
+            "/docker/"
         ]
     },
     "autoload-dev": {
