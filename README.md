@@ -28,7 +28,9 @@ accounts and payments for someone else (`Payment::$destination`, `::$application
 This package holds the contract (`GatewayInterface`, `GatewayFactory`, `Registry`), the models
 (`Payment`, `Money`, `Transaction`, `Refund`, `PaymentMethod`, `Notification`, `PlatformOrder`,
 `Product`, `ProductVariant`, `Offer`, `Stock`...),
-the requests and the Symfony bundle. Each provider is a package of its own:
+the requests and a bridge for Symfony. It needs no framework: it requires nothing but
+`symfony/http-client-contracts`, each provider package `symfony/http-client`. Each provider is a
+package of its own:
 
 | Package | Provider |
 |---|---|
@@ -46,8 +48,40 @@ provider that does not do something (no authorizations at Shopify) throws
 
 What every provider answers with is kept whole in `$raw`: normalization loses nothing.
 
+## Plain PHP
+
+```sh
+composer require glitchr/omnitrade omnitrade/paypal
+```
+
+```php
+require __DIR__.'/vendor/autoload.php';
+
+use Omnitrade\Model\Money;
+use Omnitrade\Model\Payment;
+use Omnitrade\PayPal\PayPalGatewayFactory;
+use Omnitrade\Registry;
+use Symfony\Component\HttpClient\HttpClient;
+
+$registry = new Registry([new PayPalGatewayFactory(HttpClient::create())], [
+    'paypal' => ['factory' => 'paypal', 'options' => ['client_id' => '...', 'secret' => '...', 'sandbox' => true]],
+]);
+
+$transaction = $registry->get('paypal')->purchase(new Payment(amount: Money::of(1250, 'EUR'), reference: 'ORDER-1042', returnUrl: 'https://shop.example/retour'));
+$transaction->isRedirect() && header('Location: '.$transaction->redirectUrl);   // PayPal's page; capture() when the buyer is back
+```
+
+A factory takes the HTTP client to call with - the application's, a `MockHttpClient` in a test -
+and makes its own when given none. A whole script that runs as it is, and the rest:
+[docs/installation.md](docs/installation.md). No class of a framework is loaded on the way:
+`Tests/BareTest.php` checks it in a process of its own, and so does
+`docker compose run --rm omnitrade bare` ([docs/harness.md](docs/harness.md)).
+
 ## Symfony
 
+In a Symfony application a bundle does the wiring; its components (`symfony/config`,
+`symfony/dependency-injection`, `symfony/http-kernel`) are not required by this package: the
+application has them ([docs/symfony.md](docs/symfony.md)).
 `Omnitrade\Bridge\Symfony\OmnitradeBundle`: every `omnitrade/*` provider installed registered,
 `Omnitrade\Registry` autowired, and each configured gateway injectable by its name.
 
@@ -82,7 +116,17 @@ docker compose run --rm omnitrade catalogue shopify --since='-1 day' --limit=20 
 docker compose run --rm omnitrade catalogue woocommerce --query=margaux --cursor=2
 docker compose run --rm omnitrade catalogue shopify --product=https://shop.example/products/margaux --inventory
 docker compose run --rm omnitrade catalogue woocommerce --inventory                # every variant's stock
+docker compose run --rm omnitrade bare --recorded                    # plain PHP: no bundle, no container, and what PHP loaded
 docker compose run --rm omnitrade test                               # every package's tests
 ```
+
+## Documentation
+
+- [Installation and first calls](docs/installation.md): plain PHP first
+- [Symfony](docs/symfony.md)
+- [The catalogue and affiliate links](docs/catalogue.md)
+- [Connected accounts](docs/connect.md)
+- [Subscriptions](docs/subscriptions.md)
+- [The Docker harness](docs/harness.md)
 
 License: LGPL-3.0-or-later.
