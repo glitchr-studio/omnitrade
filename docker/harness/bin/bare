@@ -1,0 +1,144 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Omnitrade in bare PHP: no bundle, no container, no console component. The
+ * registry is built by hand from the provider packages installed, each
+ * gateway that can be built says what it does, a product is read from its
+ * page's own markup through omnitrade/web, and a payment of 12.50 EUR is
+ * asked of PayPal - an order, and the page to send the buyer to; then the
+ * script lists what PHP loaded on the way.
+ *
+ *   docker compose run --rm omnitrade bare --recorded   # the answers kept in recorded/: a page, PayPal's token and order
+ *   docker compose run --rm omnitrade bare              # the gateways of .env, and the page at HARNESS_PRODUCT_URL when set
+ *   docker compose run --rm omnitrade bare --json       # the same, whole: every class loaded, every file since the autoloader
+ *
+ * It exits 1 when a class of a framework was loaded. Without --recorded
+ * nothing is bought: the payment is only asked of the recorded answers. Those
+ * were written in the shape PayPal's Orders v2 documentation gives (its
+ * example ids, a token that is manifestly not one); the page is
+ * omnitrade/web's own fixture, a shop that does not exist.
+ *
+ * OMNITRADE_AUTOLOAD names another autoloader than the harness's.
+ */
+
+use Omnitrade\Model\Customer;
+use Omnitrade\Model\Line;
+use Omnitrade\Model\Money;
+use Omnitrade\Model\Payment;
+use Omnitrade\Registry;
+use Omnitrade\Request;
+use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
+
+require getenv('OMNITRADE_AUTOLOAD') ?: '/harness/vendor/autoload.php';
+// What Composer requires for every package installed (their autoload.files) is loaded before this line,
+// whatever the script does: not counted below.
+$autoloaded = get_included_files();
+
+const PAGE = 'https://boutique.example/p/poussette-yoyo';
+
+$recorded = \in_array('--recorded', $argv, true);
+$http = !$recorded ? null : new MockHttpClient(static function (string $method, string $url): MockResponse {
+    $recorded = __DIR__.'/../recorded/';
+
+    return match (true) {
+        PAGE === $url => new MockResponse((string) file_get_contents($recorded.'web-product.html'), ['response_headers' => ['content-type' => 'text/html; charset=utf-8']]),
+        'https://api-m.sandbox.paypal.com/v1/oauth2/token' === $url => new MockResponse((string) file_get_contents($recorded.'paypal-token.json'), ['response_headers' => ['content-type' => 'application/json']]),
+        'POST' === $method && 'https://api-m.sandbox.paypal.com/v2/checkout/orders' === $url => new MockResponse((string) file_get_contents($recorded.'paypal-order-created.json'), ['http_code' => 200, 'response_headers' => ['content-type' => 'application/json']]),
+        default => new MockResponse('{"name":"RESOURCE_NOT_FOUND"}', ['http_code' => 404]),
+    };
+});
+
+$factories = [];
+foreach (require __DIR__.'/../plugins.php' as [, $class]) {
+    if (class_exists($class)) {
+        $factories[] = new $class($http ??= HttpClient::create(['timeout' => 30]));
+    }
+}
+$installed = array_map(static fn ($factory) => $factory->getName(), $factories);
+
+if ($recorded) {
+    // Manifestly not credentials: nothing is called. The shop does not exist: its name is not resolved.
+    $config = [
+        'web' => ['factory' => 'web', 'options' => ['allow_private' => true]],
+        'paypal' => ['factory' => 'paypal', 'options' => ['client_id' => 'paypal_test_not_a_real_client_id', 'secret' => 'paypal_test_not_a_real_secret', 'sandbox' => true]],
+    ];
+    $page = PAGE;
+} else {
+    $set = static fn (string $key): bool => false !== getenv($key) && '' !== getenv($key);
+    $config = array_filter(require __DIR__.'/../config/gateways.php', static fn (array $gateway) => !array_filter($gateway['needs'], static fn (string $key) => !$set($key)));
+    $config = array_map(static fn (array $gateway) => ['factory' => $gateway['factory'], 'options' => array_filter($gateway['options'], static fn ($value) => null !== $value)], $config);
+    $page = getenv('HARNESS_PRODUCT_URL') ?: null;
+}
+$config = array_filter($config, static fn (array $gateway) => \in_array($gateway['factory'], $installed, true));
+$registry = new Registry($factories, $config);
+
+$requests = ['purchase' => Request\Purchase::class, 'authorize' => Request\Authorize::class, 'capture' => Request\Capture::class, 'refund' => Request\Refund::class, 'fetch' => Request\FetchTransaction::class, 'methods' => Request\GetPaymentMethods::class, 'notify' => Request\Notify::class, 'order' => Request\FetchOrder::class, 'products' => Request\FetchProducts::class, 'product' => Request\FetchProduct::class, 'inventory' => Request\FetchInventory::class, 'affiliate' => Request\AffiliateLink::class];
+$report = ['recorded' => $recorded, 'factories' => $registry->factories(), 'gateways' => [], 'product' => null, 'payment' => null];
+foreach ($registry->all() as $name => $gateway) {
+    $report['gateways'][$name] = array_keys(array_filter($requests, static fn (string $class) => $gateway->supports($class)));
+}
+
+if (null !== $page && $registry->has('web')) {
+    $product = $registry->get('web')->fetchProduct($page);
+    $report['product'] = null === $product ? null : [
+        'page' => $page,
+        'reference' => $product->reference,
+        'title' => $product->title,
+        'brand' => $product->brand,
+        'merchant' => $product->merchant?->name,
+        'price' => $product->price()?->decimal(),
+        'currency' => $product->price()?->currency,
+        'barcode' => $product->variants[0]->barcode ?? null,
+        'media' => \count($product->media),
+        'read_from' => $product->raw['source'] ?? null,
+    ];
+}
+if ($recorded && $registry->has('paypal')) {
+    $transaction = $registry->get('paypal')->purchase(new Payment(
+        amount: Money::of(1250, 'EUR'),
+        reference: 'ORDER-1042',
+        description: 'Commande n° 1042',
+        customer: new Customer(email: 'camille@example.org', name: 'Camille Durand', country: 'FR'),
+        lines: [new Line('Dix heures', Money::of(1250, 'EUR'))],
+        returnUrl: 'https://shop.example/retour',
+        cancelUrl: 'https://shop.example/panier',
+        idempotencyKey: 'attempt-1',
+    ));
+    $report['payment'] = ['provider' => $transaction->provider, 'reference' => $transaction->reference, 'status' => $transaction->status->value, 'redirect' => $transaction->redirectUrl, 'is_redirect' => $transaction->isRedirect()];
+}
+
+// What PHP loaded to get there: the proof that no framework was needed.
+$report['symbols'] = [...get_declared_classes(), ...get_declared_interfaces(), ...get_declared_traits()];
+$report['files'] = array_values(array_diff(get_included_files(), $autoloaded));
+$framework = array_values(preg_grep('~^(?:Symfony\\\\Component\\\\(?:DependencyInjection|Config|HttpKernel|HttpFoundation)|Symfony\\\\Bundle|Symfony\\\\Bridge|Doctrine|Twig)\\\\~', $report['symbols']));
+$symfony = array_values(array_unique(array_map(static fn (string $s) => implode('\\', \array_slice(explode('\\', $s), 0, 3)), preg_grep('~^Symfony\\\\(?!Polyfill)~', $report['symbols']))));
+sort($symfony);
+
+if (\in_array('--json', $argv, true)) {
+    echo json_encode($report, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE), "\n";
+    exit($framework ? 1 : 0);
+}
+
+echo "Omnitrade in bare PHP: the registry built by hand, no bundle, no container.\n\n";
+foreach ($report['gateways'] as $name => $does) {
+    printf("  %-12s %s\n", $name, implode(' ', $does));
+}
+if (!$report['gateways']) {
+    echo $installed ? "  no gateway is configured\n" : "  no omnitrade/* provider package is installed\n";
+}
+if ($product = $report['product']) {
+    echo "\nomnitrade/web, the page ", $product['page'], $recorded ? ' kept in recorded/' : '', ":\n";
+    printf("  %s, %s, sold by %s\n  %s %s, barcode %s, %d pictures - read from its %s\n", $product['title'], $product['brand'] ?? 'no brand', $product['merchant'] ?? 'an unnamed merchant', $product['price'] ?? '?', $product['currency'] ?? '', $product['barcode'] ?? 'unknown', $product['media'], $product['read_from'] ?? 'markup');
+} elseif (!$recorded && $registry->has('web')) {
+    echo "\nomnitrade/web: set HARNESS_PRODUCT_URL to a product page to read it.\n";
+}
+if ($payment = $report['payment']) {
+    echo "\nomnitrade/paypal, 12.50 EUR for ORDER-1042, from the answers kept in recorded/:\n";
+    printf("  order %s, %s - the buyer goes to %s\n", $payment['reference'], $payment['status'], $payment['redirect']);
+}
+echo "\nLoaded from Symfony: ", implode(', ', $symfony) ?: 'nothing', "\n";
+echo 'Classes of a framework (DependencyInjection, Config, HttpKernel, HttpFoundation, a bundle, a bridge, Doctrine, Twig): ', $framework ? implode(', ', $framework) : 'none', "\n";
+exit($framework ? 1 : 0);

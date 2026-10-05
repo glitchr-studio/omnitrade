@@ -1,0 +1,14 @@
+{
+  "id": "5O190127TN364715T",
+  "intent": "CAPTURE",
+  "status": "PAYER_ACTION_REQUIRED",
+  "create_time": "2026-10-01T10:00:00Z",
+  "purchase_units": [
+    {"reference_id": "default", "custom_id": "ORDER-1042", "amount": {"currency_code": "EUR", "value": "12.50"}}
+  ],
+  "payment_source": {"paypal": {}},
+  "links": [
+    {"href": "https://api-m.sandbox.paypal.com/v2/checkout/orders/5O190127TN364715T", "rel": "self", "method": "GET"},
+    {"href": "https://www.sandbox.paypal.com/checkoutnow?token=5O190127TN364715T", "rel": "payer-action", "method": "GET"}
+  ]
+}
